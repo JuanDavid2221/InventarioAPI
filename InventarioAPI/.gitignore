@@ -1,0 +1,4 @@
+
+# Ignorar configuraciones reales en la subcarpeta
+InventarioAPI/appsettings.json
+InventarioAPI/appsettings.Development.json
