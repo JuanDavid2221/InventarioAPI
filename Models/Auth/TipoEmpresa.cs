@@ -1,4 +1,4 @@
-﻿namespace InventarioAPI.Models
+﻿namespace InventarioAPI.Models.Auth
 {
     public enum TipoEmpresa
     {
