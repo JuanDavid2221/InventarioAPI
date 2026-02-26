@@ -1,36 +1,29 @@
 ﻿using InventarioAPI.Data;
 using InventarioAPI.Models.Seguridad;
-using InventarioAPI.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace InventarioAPI.Helpers
 {
     public static class DbInitializer
     {
-        public static void Inicializar(WebApplication app)
+        public static void Inicializar(IServiceProvider serviceProvider)
         {
-            using var scope = app.Services.CreateScope();
+            using var scope = serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<InventarioContext>();
-            var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordService>();
 
-            // Aplica migraciones automáticamente
+            // Crear base si no existe
             context.Database.Migrate();
 
-            // Si NO existe un admin → lo crea
-            if (!context.Usuarios.Any(u => u.RolId == 1))
+            // SOLO CREAR ROLES (NO ADMIN)
+            if (!context.Roles.Any())
             {
-                var admin = new Usuario
-                {
-                    Nombre = "Administrador",
-                    Correo = "admin@inventario.com",
-                    PasswordHash = passwordService.Hash("Admin123!"),
-                    RolId = 1
-                };
+                context.Roles.AddRange(
+                    new Rol { Id = 1, Nombre = "Admin" },
+                    new Rol { Id = 2, Nombre = "Empleado" }
+                );
 
-                context.Usuarios.Add(admin);
                 context.SaveChanges();
-
-                Console.WriteLine("ADMIN CREADO AUTOMATICAMENTE");
             }
         }
     }

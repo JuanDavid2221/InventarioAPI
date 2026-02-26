@@ -1,4 +1,29 @@
+# 1. Ignorar configuraciones en cualquier nivel
+**/appsettings.json
+**/appsettings.Development.json
+**/appsettings.Example.json
 
-# Ignorar configuraciones reales en la subcarpeta
-InventarioAPI/appsettings.json
-InventarioAPI/appsettings.Development.json
+# 2. Archivos específicos de SQL o scripts
+*.sql
+
+## [ Archivos de compilación ]
+bin/
+obj/
+
+## [ Visual Studio ]
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.vssscc
+
+## [ Entity Framework / Logs ]
+*.log
+
+## [ Sistema Operativo ]
+dist/
+build/
+out/
+.DS_Store
+Thumbs.db

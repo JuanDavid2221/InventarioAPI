@@ -1,10 +1,12 @@
 ﻿using InventarioAPI.Data;
-using InventarioAPI.DTOs.Auth;
+using InventarioAPI.DTO.Auth;
 using InventarioAPI.Models.Seguridad;
+using InventarioAPI.Models.Auth;
 using InventarioAPI.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace InventarioAPI.Controllers
 {
@@ -16,114 +18,134 @@ namespace InventarioAPI.Controllers
         private readonly IPasswordService _passwordService;
         private readonly ITokenService _tokenService;
 
-        public AuthController(
-            InventarioContext context,
-            IPasswordService passwordService,
-            ITokenService tokenService)
+        public AuthController(InventarioContext context, IPasswordService passwordService, ITokenService tokenService)
         {
             _context = context;
             _passwordService = passwordService;
             _tokenService = tokenService;
         }
 
-        // =========================
-        // LOGIN
-        // =========================
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDTO dto)
+        // 1. REGISTRAR ADMINISTRADOR
+        [HttpPost("registrar-admin")]
+        public async Task<IActionResult> RegistrarAdmin([FromBody] RegistrarAdminDTO dto)
         {
-            // Validación básica
-            if (dto == null || string.IsNullOrWhiteSpace(dto.Correo) || string.IsNullOrWhiteSpace(dto.Password))
+            if (await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo))
+                return BadRequest("El correo ya existe en el sistema.");
+
+            var admin = new Usuario
             {
-                return BadRequest(new
-                {
-                    mensaje = "Debe enviar correo y contraseña"
-                });
-            }
+                Nombre = dto.Nombre,
+                Correo = dto.Correo,
+                PasswordHash = _passwordService.Hash(dto.Password),
+                Rol = "Admin" // 🔥 Aseguramos que se guarde como Admin en la DB
+            };
 
-            // Buscar usuario
-            var usuario = await _context.Usuarios
-                .Include(u => u.Rol)
-                .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
-
-            if (usuario == null)
-            {
-                return Unauthorized(new
-                {
-                    mensaje = "El usuario no existe"
-                });
-            }
-
-            // Verificar contraseña
-            bool passwordCorrecto = _passwordService.Verificar(dto.Password, usuario.PasswordHash);
-
-            if (!passwordCorrecto)
-            {
-                return Unauthorized(new
-                {
-                    mensaje = "Correo o contraseña incorrectos"
-                });
-            }
-
-            // Generar token
-            var token = _tokenService.GenerarToken(usuario);
-
-            // 🔐 Enviar token en HEADER (no en el body)
-            Response.Headers["Authorization"] = "Bearer " + token;
-
-            // Respuesta limpia (como sistema empresarial)
-            return Ok(new
-            {
-                mensaje = "Inicio de sesión exitoso"
-
-            });
+            _context.Usuarios.Add(admin);
+            await _context.SaveChangesAsync();
+            return Ok("Administrador creado correctamente. Ahora inicie sesión para registrar su empresa.");
         }
-        // =========================
-        // REGISTRAR EMPLEADO (SOLO ADMIN)
-        // =========================
+
+        // 2. CREAR EMPRESA
+        [Authorize(Roles = "Admin")]
+        [HttpPost("crear-empresa")]
+        public async Task<IActionResult> CrearEmpresa([FromBody] CrearEmpresaDTO dto)
+        {
+            var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (usuarioIdClaim == null) return Unauthorized("Token no válido.");
+
+            int usuarioId = int.Parse(usuarioIdClaim.Value);
+            var usuarioDb = await _context.Usuarios.FindAsync(usuarioId);
+
+            if (usuarioDb == null) return BadRequest("Usuario no encontrado.");
+            if (usuarioDb.IdEmpresa != null) return BadRequest("Ya tienes una empresa vinculada.");
+
+            var empresa = new Empresa
+            {
+                Nombre = dto.Nombre,
+                NIT_RUT = dto.NIT_RUT,
+                Direccion = dto.Direccion,
+                Telefono = dto.Telefono,
+                CorreoContacto = dto.CorreoContacto,
+                TipoNegocio = dto.TipoNegocio,
+                PropietarioId = usuarioId,
+                FechaRegistro = DateTime.Now
+            };
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                _context.Empresas.Add(empresa);
+                await _context.SaveChangesAsync();
+
+                usuarioDb.IdEmpresa = empresa.Id;
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return Ok(new { mensaje = "Empresa creada exitosamente", empresaId = empresa.Id });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest($"Error: {ex.Message}");
+            }
+        }
+
+        // 3. REGISTRAR EMPLEADO
         [Authorize(Roles = "Admin")]
         [HttpPost("registrar-empleado")]
         public async Task<IActionResult> RegistrarEmpleado([FromBody] RegistrarEmpleadoDTO dto)
         {
-            if (string.IsNullOrEmpty(dto.Nombre) ||
-                string.IsNullOrEmpty(dto.Correo) ||
-                string.IsNullOrEmpty(dto.Password))
-            {
-                return BadRequest(new
-                {
-                    mensaje = "Todos los campos son obligatorios"
-                });
-            }
+            // Extraemos IdEmpresa del Token generado en el Login
+            var empresaIdClaim = User.FindFirst("IdEmpresa")?.Value;
 
-            // Verificar si el correo ya existe
-            var existe = await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo);
+            if (string.IsNullOrEmpty(empresaIdClaim) || empresaIdClaim == "0")
+                return BadRequest("Debes crear una empresa antes de registrar empleados.");
 
-            if (existe)
-            {
-                return BadRequest(new
-                {
-                    mensaje = "El correo ya está registrado"
-                });
-            }
+            if (await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo))
+                return BadRequest("El correo ya está registrado.");
 
-            // Crear empleado
             var empleado = new Usuario
             {
                 Nombre = dto.Nombre,
                 Correo = dto.Correo,
                 PasswordHash = _passwordService.Hash(dto.Password),
-                RolId = 2 // 2 = Empleado
+                Rol = "Empleado",
+                IdEmpresa = int.Parse(empresaIdClaim)
             };
 
             _context.Usuarios.Add(empleado);
             await _context.SaveChangesAsync();
+            return Ok("Empleado registrado con éxito.");
+        }
+
+        // 4. LOGIN
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] LoginDTO dto)
+        {
+            var usuario = await _context.Usuarios
+                .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
+
+            if (usuario == null || !_passwordService.Verificar(dto.Password, usuario.PasswordHash))
+                return Unauthorized("Credenciales incorrectas.");
+
+            // 🔥 Si borraste datos y el Rol quedó vacío por error manual en SQL, 
+            // esto asegura que el token no falle.
+            if (string.IsNullOrEmpty(usuario.Rol)) usuario.Rol = "Admin";
+
+            var token = _tokenService.GenerarToken(usuario);
 
             return Ok(new
             {
-                mensaje = "Empleado registrado correctamente"
+                token = token,
+                usuario = new
+                {
+                    id = usuario.IdUsuario,
+                    nombre = usuario.Nombre,
+                    rol = usuario.Rol,
+                    empresaId = usuario.IdEmpresa
+                }
             });
         }
-
     }
-
 }
