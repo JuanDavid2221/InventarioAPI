@@ -1,6 +1,6 @@
-﻿using InventarioAPI.Models.Auth;
+﻿using InventarioAPI.Models.Empresa;
 
-namespace InventarioAPI.DTO.Auth
+namespace InventarioAPI.DTOs.Empresa
 {
     public class CrearEmpresaDTO
     {

@@ -1,55 +1,58 @@
 using InventarioAPI.Data;
-using InventarioAPI.Helpers;
-using InventarioAPI.Services;
 using InventarioAPI.Services.Implementations;
 using InventarioAPI.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
-using Scalar.AspNetCore; // Nueva librería para ver la API
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ---------------- 1. BASE DE DATOS ----------------
+// 1. Contexto de Base de Datos
 builder.Services.AddDbContext<InventarioContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ---------------- 2. DOCUMENTACIÓN (SCALAR/OPENAPI) ----------------
-builder.Services.AddOpenApi(); // Configuración nativa de .NET 10
+// 2. Swagger / Scalar
+builder.Services.AddOpenApi();
 
-// ---------------- 3. SERVICIOS ----------------
+// 3. Inyección de Dependencias
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
-// ---------------- 4. JWT ----------------
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "ClaveTemporalDe32CaracteresMinimo123";
+// 4. Configuración de JWT
+var jwtKey = builder.Configuration["JWT:Key"] ?? "ClaveSuperSecretaDeMasDe32Caracteres2026";
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
+    .AddJwtBearer(options => {
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(key),
-            ValidateIssuer = false,
-            ValidateAudience = false
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["JWT:Issuer"],
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["JWT:Audience"],
+            ValidateLifetime = true
         };
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers().AddJsonOptions(x => x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
+
+// 5. Controllers con manejo de ciclos JSON
+builder.Services.AddControllers()
+    .AddJsonOptions(x => x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
 
 var app = builder.Build();
 
-// ----------- 5. MIDDLEWARE (DOCUMENTACIÓN MODERNA) -----------
+// 6. Pipeline HTTP
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi(); // Genera el JSON de la API
-    app.MapScalarApiReference(); // Muestra la interfaz bonita para probar
+    app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
 app.UseHttpsRedirection();
@@ -57,10 +60,20 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// 🔥 6. INICIALIZADOR
+// 7. INICIALIZADOR DE DATOS (Ruta explícita para evitar errores)
 using (var scope = app.Services.CreateScope())
 {
-    DbInitializer.Inicializar(scope.ServiceProvider);
+    var services = scope.ServiceProvider;
+    try
+    {
+        // Usamos el namespace completo para que no se confunda con Helpers
+        InventarioAPI.Data.DbInitializer.Inicializar(services);
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Error al inicializar la base de datos.");
+    }
 }
 
 app.Run();

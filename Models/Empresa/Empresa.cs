@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using InventarioAPI.Models.Seguridad;
 
-namespace InventarioAPI.Models.Auth
+namespace InventarioAPI.Models.Empresa
 {
     public class Empresa
     {

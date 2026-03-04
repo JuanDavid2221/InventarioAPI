@@ -1,4 +1,4 @@
-﻿namespace InventarioAPI.DTO.Auth
+﻿namespace InventarioAPI.DTOs.Auth
 {
     public class RegistrarEmpleadoDTO
     {

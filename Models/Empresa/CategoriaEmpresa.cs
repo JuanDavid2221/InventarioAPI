@@ -1,4 +1,4 @@
-﻿namespace InventarioAPI.Models.Auth
+﻿namespace InventarioAPI.Models.Empresa
 {
     public class CategoriaEmpresa
     {

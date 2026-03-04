@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using InventarioAPI.Models.Seguridad;
-using InventarioAPI.Models.Auth;
+using InventarioAPI.Models.Proveedores;
+using InventarioAPI.Models.Empresa;
 
 namespace InventarioAPI.Data
 {
@@ -8,10 +9,13 @@ namespace InventarioAPI.Data
     {
         public InventarioContext(DbContextOptions<InventarioContext> options) : base(options) { }
 
-        // Tablas principales según tus modelos
+        // Tablas principales
         public DbSet<Usuario> Usuarios => Set<Usuario>();
         public DbSet<Rol> Roles => Set<Rol>();
         public DbSet<Empresa> Empresas => Set<Empresa>();
+
+        // --- NUEVA TABLA AGREGADA ---
+        public DbSet<Proveedor> Proveedores => Set<Proveedor>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -34,12 +38,12 @@ namespace InventarioAPI.Data
             modelBuilder.Entity<Usuario>(entity =>
             {
                 entity.ToTable("Usuarios");
-                entity.HasKey(u => u.IdUsuario); // Clave primaria según tu Lucidspark
+                entity.HasKey(u => u.IdUsuario);
 
                 // Relación: Muchos usuarios pertenecen a una Empresa
                 entity.HasOne(u => u.Empresa)
                       .WithMany(e => e.Usuarios)
-                      .HasForeignKey(u => u.IdEmpresa) // FK según tu Lucidspark
+                      .HasForeignKey(u => u.IdEmpresa)
                       .OnDelete(DeleteBehavior.Restrict);
             });
 
@@ -50,7 +54,24 @@ namespace InventarioAPI.Data
                 entity.HasKey(r => r.Id);
             });
 
-            // Semilla de datos para Roles (Seed Data)
+            // --- 4. CONFIGURACIÓN DE LA TABLA PROVEEDORES ---
+            modelBuilder.Entity<Proveedor>(entity =>
+            {
+                entity.ToTable("Proveedores");
+                entity.HasKey(p => p.Id);
+
+                // --- MEJORA PROFESIONAL: ÍNDICE ÚNICO ---
+                // Esto evita que exista el mismo NIT dos veces para la misma empresa a nivel de SQL
+                entity.HasIndex(p => new { p.NIT, p.IdEmpresa }).IsUnique();
+
+                // Relación: Muchos proveedores pertenecen a una Empresa
+                entity.HasOne(p => p.Empresa)
+                      .WithMany()
+                      .HasForeignKey(p => p.IdEmpresa)
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Semilla de datos para Roles
             modelBuilder.Entity<Rol>().HasData(
                 new Rol { Id = 1, Nombre = "Admin" },
                 new Rol { Id = 2, Nombre = "Empleado" }

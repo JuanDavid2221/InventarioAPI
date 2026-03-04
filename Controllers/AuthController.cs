@@ -1,7 +1,7 @@
 ﻿using InventarioAPI.Data;
 using InventarioAPI.DTO.Auth;
+using InventarioAPI.DTOs.Auth;
 using InventarioAPI.Models.Seguridad;
-using InventarioAPI.Models.Auth;
 using InventarioAPI.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,133 +25,103 @@ namespace InventarioAPI.Controllers
             _tokenService = tokenService;
         }
 
-        // 1. REGISTRAR ADMINISTRADOR (Dueño inicial)
+        // 1. REGISTRAR ADMIN
         [HttpPost("registrar-admin")]
         public async Task<IActionResult> RegistrarAdmin([FromBody] RegistrarAdminDTO dto)
         {
             if (await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo))
-                return BadRequest("El correo ya existe en el sistema.");
+                return BadRequest(new { mensaje = "El correo ya existe." });
 
             var admin = new Usuario
             {
                 Nombre = dto.Nombre,
                 Correo = dto.Correo,
                 PasswordHash = _passwordService.Hash(dto.Password),
-                Rol = "Admin" // Asignamos el string directamente como en tu Lucidspark
+                RolId = 1,
+                FechaRegistro = DateTime.Now,
+                Activo = true
             };
 
             _context.Usuarios.Add(admin);
             await _context.SaveChangesAsync();
-            return Ok("Administrador creado correctamente. Ahora inicie sesión para registrar su empresa.");
+            return Ok(new { mensaje = "Admin creado. Ya puede iniciar sesión." });
         }
 
-        // 2. CREAR EMPRESA (El Admin logueado crea su sede principal)
-        [Authorize(Roles = "Admin")]
-        [HttpPost("crear-empresa")]
-        public async Task<IActionResult> CrearEmpresa([FromBody] CrearEmpresaDTO dto)
+        // 2. LOGIN
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] LoginDTO dto)
         {
-            // Obtenemos el ID del usuario desde el Token
-            var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (usuarioIdClaim == null) return Unauthorized("Token no válido o expirado.");
-            int usuarioId = int.Parse(usuarioIdClaim.Value);
+            var usuario = await _context.Usuarios.Include(u => u.Rol)
+                .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
 
-            var usuarioDb = await _context.Usuarios.FindAsync(usuarioId);
-            if (usuarioDb == null) return BadRequest("Usuario no encontrado.");
+            if (usuario == null || !_passwordService.Verificar(dto.Password, usuario.PasswordHash))
+                return Unauthorized(new { mensaje = "Credenciales inválidas." });
 
-            if (usuarioDb.IdEmpresa != null)
-                return BadRequest("Este administrador ya tiene una empresa vinculada.");
-
-            var empresa = new Empresa
-            {
-                Nombre = dto.Nombre,
-                NIT_RUT = dto.NIT_RUT,
-                Direccion = dto.Direccion,
-                Telefono = dto.Telefono,
-                CorreoContacto = dto.CorreoContacto,
-                TipoNegocio = dto.TipoNegocio,
-                PropietarioId = usuarioId,
-                FechaRegistro = DateTime.Now
-            };
-
-            // Usamos transacción para asegurar que se cree la empresa y se actualice el usuario al tiempo
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                _context.Empresas.Add(empresa);
-                await _context.SaveChangesAsync();
-
-                // Vinculamos al admin con su nueva empresa
-                usuarioDb.IdEmpresa = empresa.Id;
-                await _context.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-
-                return Ok(new
-                {
-                    mensaje = "Empresa creada y vinculada exitosamente",
-                    empresaId = empresa.Id,
-                    tipo = empresa.TipoNegocio.ToString()
-                });
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return BadRequest($"Error en el proceso: {ex.Message}");
-            }
+            var token = _tokenService.GenerarToken(usuario);
+            return Ok(new { token, usuario = new { id = usuario.IdUsuario, nombre = usuario.Nombre, rol = usuario.Rol?.Nombre, empresaId = usuario.IdEmpresa } });
         }
 
-        // 3. REGISTRAR EMPLEADO (El Admin crea personal para SU empresa)
+        // 3. REGISTRAR EMPLEADO
         [Authorize(Roles = "Admin")]
         [HttpPost("registrar-empleado")]
-        public async Task<IActionResult> RegistrarEmpleado([FromBody] RegistrarEmpleadoDTO dto)
+        public async Task<IActionResult> RegistrarEmpleado([FromBody] RegistrarAdminDTO dto)
         {
-            // Extraemos el IdEmpresa que viene en el Token del Admin
-            var empresaIdClaim = User.FindFirst("IdEmpresa")?.Value;
+            var adminIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(adminIdClaim)) return Unauthorized();
 
-            if (string.IsNullOrEmpty(empresaIdClaim) || empresaIdClaim == "0")
-                return BadRequest("El administrador primero debe crear una empresa.");
+            var adminDb = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.IdUsuario == int.Parse(adminIdClaim));
 
-            if (await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo))
-                return BadRequest("El correo ya está registrado para otro empleado.");
+            if (adminDb?.IdEmpresa == null)
+                return BadRequest(new { mensaje = "Primero debes crear una empresa para registrar empleados." });
 
             var empleado = new Usuario
             {
                 Nombre = dto.Nombre,
                 Correo = dto.Correo,
                 PasswordHash = _passwordService.Hash(dto.Password),
-                Rol = "Empleado",
-                IdEmpresa = int.Parse(empresaIdClaim) // Se vincula automáticamente a la misma empresa del Admin
+                RolId = 2,
+                IdEmpresa = adminDb.IdEmpresa,
+                FechaRegistro = DateTime.Now,
+                Activo = true
             };
 
             _context.Usuarios.Add(empleado);
             await _context.SaveChangesAsync();
-            return Ok("Empleado registrado y vinculado a su empresa con éxito.");
+            return Ok(new { mensaje = "Empleado registrado y vinculado a tu empresa." });
         }
 
-        // 4. LOGIN (Entrega el Token con IdEmpresa incluido)
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDTO dto)
+        // 4. CAMBIO DE CONTRASEÑA (ACTUALIZADO 🔐)
+        [Authorize]
+        [HttpPost("cambiar-password")]
+        public async Task<IActionResult> CambiarPassword([FromBody] CambiarPasswordDTO dto)
         {
-            var usuario = await _context.Usuarios
-                .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
-
-            if (usuario == null || !_passwordService.Verificar(dto.Password, usuario.PasswordHash))
-                return Unauthorized("Correo o contraseña incorrectos.");
-
-            // Generamos el token usando el servicio que configuramos
-            var token = _tokenService.GenerarToken(usuario);
-
-            return Ok(new
+            // Validar que las nuevas contraseñas coincidan
+            if (dto.PasswordNueva != dto.ConfirmarPasswordNueva)
             {
-                token = token,
-                usuario = new
-                {
-                    id = usuario.IdUsuario,
-                    nombre = usuario.Nombre,
-                    rol = usuario.Rol,
-                    empresaId = usuario.IdEmpresa
-                }
-            });
+                return BadRequest(new { mensaje = "La nueva contraseña y su confirmación no coinciden." });
+            }
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim)) return Unauthorized();
+
+            var usuario = await _context.Usuarios.FindAsync(int.Parse(userIdClaim));
+
+            // Validar que el usuario exista y que la contraseña actual sea correcta
+            if (usuario == null || !_passwordService.Verificar(dto.PasswordActual, usuario.PasswordHash))
+                return BadRequest(new { mensaje = "La contraseña actual es incorrecta." });
+
+            // Actualizar el Hash con la nueva clave
+            usuario.PasswordHash = _passwordService.Hash(dto.PasswordNueva);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { mensaje = "Contraseña actualizada exitosamente." });
         }
+    }
+
+    public class CambiarPasswordDTO
+    {
+        public string PasswordActual { get; set; } = string.Empty;
+        public string PasswordNueva { get; set; } = string.Empty;
+        public string ConfirmarPasswordNueva { get; set; } = string.Empty;
     }
 }
