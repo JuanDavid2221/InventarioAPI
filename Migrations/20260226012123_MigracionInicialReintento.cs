@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -7,7 +8,7 @@
 namespace InventarioAPI.Migrations
 {
     /// <inheritdoc />
-    public partial class MigracionInicialLimpia : Migration
+    public partial class MigracionInicialReintento : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -32,10 +33,12 @@ namespace InventarioAPI.Migrations
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Nombre = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Nit = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    NIT_RUT = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Direccion = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Telefono = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Tipo = table.Column<int>(type: "int", nullable: false),
+                    CorreoContacto = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    FechaRegistro = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    TipoNegocio = table.Column<int>(type: "int", nullable: false),
                     PropietarioId = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
@@ -47,20 +50,21 @@ namespace InventarioAPI.Migrations
                 name: "Usuarios",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "int", nullable: false)
+                    IdUsuario = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Nombre = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Correo = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     PasswordHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    RolId = table.Column<int>(type: "int", nullable: false),
-                    EmpresaId = table.Column<int>(type: "int", nullable: true)
+                    Rol = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    IdEmpresa = table.Column<int>(type: "int", nullable: true),
+                    RolId = table.Column<int>(type: "int", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Usuarios", x => x.Id);
+                    table.PrimaryKey("PK_Usuarios", x => x.IdUsuario);
                     table.ForeignKey(
-                        name: "FK_Usuarios_Empresas_EmpresaId",
-                        column: x => x.EmpresaId,
+                        name: "FK_Usuarios_Empresas_IdEmpresa",
+                        column: x => x.IdEmpresa,
                         principalTable: "Empresas",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -68,8 +72,7 @@ namespace InventarioAPI.Migrations
                         name: "FK_Usuarios_Roles_RolId",
                         column: x => x.RolId,
                         principalTable: "Roles",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.InsertData(
@@ -88,9 +91,9 @@ namespace InventarioAPI.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Usuarios_EmpresaId",
+                name: "IX_Usuarios_IdEmpresa",
                 table: "Usuarios",
-                column: "EmpresaId");
+                column: "IdEmpresa");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Usuarios_RolId",
@@ -102,7 +105,7 @@ namespace InventarioAPI.Migrations
                 table: "Empresas",
                 column: "PropietarioId",
                 principalTable: "Usuarios",
-                principalColumn: "Id",
+                principalColumn: "IdUsuario",
                 onDelete: ReferentialAction.Restrict);
         }
 

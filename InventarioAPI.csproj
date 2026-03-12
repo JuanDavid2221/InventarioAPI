@@ -25,4 +25,9 @@
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.4" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Folder Include="DTOs\CategoriasDto\" />
+	  <Folder Include="Models\Inventario\" />
+	</ItemGroup>
+
 </Project>

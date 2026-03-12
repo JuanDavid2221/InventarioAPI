@@ -25,7 +25,7 @@ namespace InventarioAPI.Controllers
             _tokenService = tokenService;
         }
 
-        // 1. REGISTRAR ADMINISTRADOR (Dueño inicial)
+        // 1. REGISTRAR ADMINISTRADOR
         [HttpPost("registrar-admin")]
         public async Task<IActionResult> RegistrarAdmin([FromBody] RegistrarAdminDTO dto)
         {
@@ -37,7 +37,7 @@ namespace InventarioAPI.Controllers
                 Nombre = dto.Nombre,
                 Correo = dto.Correo,
                 PasswordHash = _passwordService.Hash(dto.Password),
-                Rol = "Admin" // Asignamos el string directamente como en tu Lucidspark
+                Rol = "Admin" // 🔥 Aseguramos que se guarde como Admin en la DB
             };
 
             _context.Usuarios.Add(admin);
@@ -45,21 +45,19 @@ namespace InventarioAPI.Controllers
             return Ok("Administrador creado correctamente. Ahora inicie sesión para registrar su empresa.");
         }
 
-        // 2. CREAR EMPRESA (El Admin logueado crea su sede principal)
+        // 2. CREAR EMPRESA
         [Authorize(Roles = "Admin")]
         [HttpPost("crear-empresa")]
         public async Task<IActionResult> CrearEmpresa([FromBody] CrearEmpresaDTO dto)
         {
-            // Obtenemos el ID del usuario desde el Token
             var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (usuarioIdClaim == null) return Unauthorized("Token no válido o expirado.");
+            if (usuarioIdClaim == null) return Unauthorized("Token no válido.");
+
             int usuarioId = int.Parse(usuarioIdClaim.Value);
-
             var usuarioDb = await _context.Usuarios.FindAsync(usuarioId);
-            if (usuarioDb == null) return BadRequest("Usuario no encontrado.");
 
-            if (usuarioDb.IdEmpresa != null)
-                return BadRequest("Este administrador ya tiene una empresa vinculada.");
+            if (usuarioDb == null) return BadRequest("Usuario no encontrado.");
+            if (usuarioDb.IdEmpresa != null) return BadRequest("Ya tienes una empresa vinculada.");
 
             var empresa = new Empresa
             {
@@ -73,46 +71,39 @@ namespace InventarioAPI.Controllers
                 FechaRegistro = DateTime.Now
             };
 
-            // Usamos transacción para asegurar que se cree la empresa y se actualice el usuario al tiempo
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 _context.Empresas.Add(empresa);
                 await _context.SaveChangesAsync();
 
-                // Vinculamos al admin con su nueva empresa
                 usuarioDb.IdEmpresa = empresa.Id;
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
 
-                return Ok(new
-                {
-                    mensaje = "Empresa creada y vinculada exitosamente",
-                    empresaId = empresa.Id,
-                    tipo = empresa.TipoNegocio.ToString()
-                });
+                return Ok(new { mensaje = "Empresa creada exitosamente", empresaId = empresa.Id });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return BadRequest($"Error en el proceso: {ex.Message}");
+                return BadRequest($"Error: {ex.Message}");
             }
         }
 
-        // 3. REGISTRAR EMPLEADO (El Admin crea personal para SU empresa)
+        // 3. REGISTRAR EMPLEADO
         [Authorize(Roles = "Admin")]
         [HttpPost("registrar-empleado")]
         public async Task<IActionResult> RegistrarEmpleado([FromBody] RegistrarEmpleadoDTO dto)
         {
-            // Extraemos el IdEmpresa que viene en el Token del Admin
+            // Extraemos IdEmpresa del Token generado en el Login
             var empresaIdClaim = User.FindFirst("IdEmpresa")?.Value;
 
             if (string.IsNullOrEmpty(empresaIdClaim) || empresaIdClaim == "0")
-                return BadRequest("El administrador primero debe crear una empresa.");
+                return BadRequest("Debes crear una empresa antes de registrar empleados.");
 
             if (await _context.Usuarios.AnyAsync(u => u.Correo == dto.Correo))
-                return BadRequest("El correo ya está registrado para otro empleado.");
+                return BadRequest("El correo ya está registrado.");
 
             var empleado = new Usuario
             {
@@ -120,15 +111,15 @@ namespace InventarioAPI.Controllers
                 Correo = dto.Correo,
                 PasswordHash = _passwordService.Hash(dto.Password),
                 Rol = "Empleado",
-                IdEmpresa = int.Parse(empresaIdClaim) // Se vincula automáticamente a la misma empresa del Admin
+                IdEmpresa = int.Parse(empresaIdClaim)
             };
 
             _context.Usuarios.Add(empleado);
             await _context.SaveChangesAsync();
-            return Ok("Empleado registrado y vinculado a su empresa con éxito.");
+            return Ok("Empleado registrado con éxito.");
         }
 
-        // 4. LOGIN (Entrega el Token con IdEmpresa incluido)
+        // 4. LOGIN
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDTO dto)
         {
@@ -136,9 +127,12 @@ namespace InventarioAPI.Controllers
                 .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
 
             if (usuario == null || !_passwordService.Verificar(dto.Password, usuario.PasswordHash))
-                return Unauthorized("Correo o contraseña incorrectos.");
+                return Unauthorized("Credenciales incorrectas.");
 
-            // Generamos el token usando el servicio que configuramos
+            // 🔥 Si borraste datos y el Rol quedó vacío por error manual en SQL, 
+            // esto asegura que el token no falle.
+            if (string.IsNullOrEmpty(usuario.Rol)) usuario.Rol = "Admin";
+
             var token = _tokenService.GenerarToken(usuario);
 
             return Ok(new

@@ -1,6 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
-using InventarioAPI.Models.Seguridad;
+﻿using InventarioAPI.Models;
 using InventarioAPI.Models.Auth;
+using InventarioAPI.Models.Seguridad;
+using Microsoft.EntityFrameworkCore;
 
 namespace InventarioAPI.Data
 {
@@ -12,6 +13,9 @@ namespace InventarioAPI.Data
         public DbSet<Usuario> Usuarios => Set<Usuario>();
         public DbSet<Rol> Roles => Set<Rol>();
         public DbSet<Empresa> Empresas => Set<Empresa>();
+
+        public DbSet<Categoria> Categorias => Set<Categoria>();
+        public DbSet<Producto> Productos => Set<Producto>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

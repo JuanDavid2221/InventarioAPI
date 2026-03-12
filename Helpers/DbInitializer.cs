@@ -13,9 +13,6 @@ namespace InventarioAPI.Helpers
             var context = scope.ServiceProvider.GetRequiredService<InventarioContext>();
 
             // Crear base si no existe
-            context.Database.Migrate();
-
-            // SOLO CREAR ROLES (NO ADMIN)
             if (!context.Roles.Any())
             {
                 context.Roles.AddRange(
